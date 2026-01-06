@@ -31,6 +31,13 @@ except Exception:
     KAKASI_AVAILABLE = False
 
 try:
+    from phonemizer import phonemize
+
+    PHONEMIZER_AVAILABLE = True
+except Exception:
+    PHONEMIZER_AVAILABLE = False
+
+try:
     from pypinyin import Style, pinyin as pypinyin
 
     PINYIN_AVAILABLE = True
@@ -48,6 +55,129 @@ if KAKASI_AVAILABLE:
         ROMAJI_CONVERTER = kakasi.getConverter()
     except Exception:
         ROMAJI_CONVERTER = None
+
+KANA_ROMAJI_BASE = {
+    "あ": "a",
+    "い": "i",
+    "う": "u",
+    "え": "e",
+    "お": "o",
+    "か": "ka",
+    "き": "ki",
+    "く": "ku",
+    "け": "ke",
+    "こ": "ko",
+    "さ": "sa",
+    "し": "shi",
+    "す": "su",
+    "せ": "se",
+    "そ": "so",
+    "た": "ta",
+    "ち": "chi",
+    "つ": "tsu",
+    "て": "te",
+    "と": "to",
+    "な": "na",
+    "に": "ni",
+    "ぬ": "nu",
+    "ね": "ne",
+    "の": "no",
+    "は": "ha",
+    "ひ": "hi",
+    "ふ": "fu",
+    "へ": "he",
+    "ほ": "ho",
+    "ま": "ma",
+    "み": "mi",
+    "む": "mu",
+    "め": "me",
+    "も": "mo",
+    "や": "ya",
+    "ゆ": "yu",
+    "よ": "yo",
+    "ら": "ra",
+    "り": "ri",
+    "る": "ru",
+    "れ": "re",
+    "ろ": "ro",
+    "わ": "wa",
+    "を": "o",
+    "ん": "n",
+    "が": "ga",
+    "ぎ": "gi",
+    "ぐ": "gu",
+    "げ": "ge",
+    "ご": "go",
+    "ざ": "za",
+    "じ": "ji",
+    "ず": "zu",
+    "ぜ": "ze",
+    "ぞ": "zo",
+    "だ": "da",
+    "ぢ": "ji",
+    "づ": "zu",
+    "で": "de",
+    "ど": "do",
+    "ば": "ba",
+    "び": "bi",
+    "ぶ": "bu",
+    "べ": "be",
+    "ぼ": "bo",
+    "ぱ": "pa",
+    "ぴ": "pi",
+    "ぷ": "pu",
+    "ぺ": "pe",
+    "ぽ": "po",
+    "ぁ": "a",
+    "ぃ": "i",
+    "ぅ": "u",
+    "ぇ": "e",
+    "ぉ": "o",
+    "ゃ": "ya",
+    "ゅ": "yu",
+    "ょ": "yo",
+}
+
+KANA_ROMAJI_DIGRAPHS = {
+    "きゃ": "kya",
+    "きゅ": "kyu",
+    "きょ": "kyo",
+    "ぎゃ": "gya",
+    "ぎゅ": "gyu",
+    "ぎょ": "gyo",
+    "しゃ": "sha",
+    "しゅ": "shu",
+    "しょ": "sho",
+    "じゃ": "ja",
+    "じゅ": "ju",
+    "じょ": "jo",
+    "ちゃ": "cha",
+    "ちゅ": "chu",
+    "ちょ": "cho",
+    "にゃ": "nya",
+    "にゅ": "nyu",
+    "にょ": "nyo",
+    "ひゃ": "hya",
+    "ひゅ": "hyu",
+    "ひょ": "hyo",
+    "みゃ": "mya",
+    "みゅ": "myu",
+    "みょ": "myo",
+    "りゃ": "rya",
+    "りゅ": "ryu",
+    "りょ": "ryo",
+    "びゃ": "bya",
+    "びゅ": "byu",
+    "びょ": "byo",
+    "ぴゃ": "pya",
+    "ぴゅ": "pyu",
+    "ぴょ": "pyo",
+    "ゔぁ": "va",
+    "ゔぃ": "vi",
+    "ゔぇ": "ve",
+    "ゔぉ": "vo",
+    "ゔゅ": "vyu",
+}
 
 
 @dataclass
@@ -107,6 +237,7 @@ class SlotAssignment:
     strip_kana: bool = False
     kana_romaji: bool = False
     pinyin: bool = False
+    ipa_lang: Optional[str] = None
 
 
 class FuriganaGenerator:
@@ -420,11 +551,43 @@ def _is_kana_text(text: str) -> bool:
 
 def _kana_to_romaji(text: str) -> Optional[str]:
     if not ROMAJI_CONVERTER:
-        return None
+        return _kana_to_romaji_fallback(text)
     try:
         return ROMAJI_CONVERTER.do(text)
     except Exception:
+        return _kana_to_romaji_fallback(text)
+
+
+def _kana_to_romaji_fallback(text: str) -> Optional[str]:
+    if not text:
         return None
+    hira = _to_hiragana(text)
+    result = ""
+    i = 0
+    while i < len(hira):
+        char = hira[i]
+        if char == "っ":
+            if i + 1 < len(hira):
+                next_char = hira[i + 1]
+                next_pair = hira[i + 1 : i + 3] if i + 2 < len(hira) else ""
+                next_romaji = KANA_ROMAJI_DIGRAPHS.get(next_pair) or KANA_ROMAJI_BASE.get(next_char, "")
+                if next_romaji:
+                    result += next_romaji[0]
+            i += 1
+            continue
+        if char == "ー":
+            if result and result[-1] in "aeiou":
+                result += result[-1]
+            i += 1
+            continue
+        pair = hira[i : i + 2]
+        if pair in KANA_ROMAJI_DIGRAPHS:
+            result += KANA_ROMAJI_DIGRAPHS[pair]
+            i += 2
+            continue
+        result += KANA_ROMAJI_BASE.get(char, char)
+        i += 1
+    return result.strip() or None
 
 
 def _apply_kana_romaji(tokens: list[RubyToken]) -> None:
@@ -438,6 +601,55 @@ def _apply_kana_romaji(tokens: list[RubyToken]) -> None:
         romaji = _kana_to_romaji(token.text)
         if romaji and romaji != token.text:
             token.ruby = romaji
+
+
+def _split_word_tokens(text: str) -> list[RubyToken]:
+    if not text:
+        return []
+    parts = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+|\s+|[^\w\s]", text)
+    tokens: list[RubyToken] = []
+    for part in parts:
+        tokens.append(RubyToken(text=part))
+    return tokens
+
+
+def _phonemize_word(word: str, lang: str) -> Optional[str]:
+    if not PHONEMIZER_AVAILABLE:
+        return None
+    try:
+        result = phonemize(
+            word,
+            language=lang,
+            backend="espeak",
+            strip=True,
+            preserve_punctuation=True,
+            with_stress=False,
+            njobs=1,
+        )
+    except Exception:
+        return None
+    cleaned = result.strip()
+    if not cleaned or cleaned == word:
+        return None
+    return cleaned
+
+
+def _apply_ipa(tokens: list[RubyToken], lang: str) -> list[RubyToken]:
+    if not tokens:
+        return tokens
+    updated: list[RubyToken] = []
+    for token in tokens:
+        if token.ruby or not token.text:
+            updated.append(token)
+            continue
+        if not re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ]", token.text):
+            updated.append(token)
+            continue
+        ipa = _phonemize_word(token.text, lang)
+        if ipa:
+            token.ruby = ipa
+        updated.append(token)
+    return updated
 
 
 def _tokens_with_pinyin(text: str) -> list[RubyToken]:
@@ -573,6 +785,7 @@ def load_segments_from_json(
     strip_kana: bool = False,
     kana_romaji: bool = False,
     pinyin: bool = False,
+    ipa_lang: Optional[str] = None,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -640,6 +853,11 @@ def load_segments_from_json(
 
         if pinyin and tokens:
             tokens = _apply_pinyin(tokens)
+
+        if ipa_lang:
+            if len(tokens) == 1 and tokens[0].text and not tokens[0].ruby and " " in tokens[0].text:
+                tokens = _split_word_tokens(tokens[0].text)
+            tokens = _apply_ipa(tokens, ipa_lang)
 
         segments.append(
             SubtitleSegment(
@@ -717,6 +935,7 @@ def burn_subtitles_with_layout(
             strip_kana=assignment.strip_kana,
             kana_romaji=assignment.kana_romaji,
             pinyin=assignment.pinyin,
+            ipa_lang=assignment.ipa_lang,
         )
         if not segments:
             continue
