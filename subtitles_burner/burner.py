@@ -603,6 +603,66 @@ def _apply_kana_romaji(tokens: list[RubyToken]) -> None:
             token.ruby = romaji
 
 
+def _split_kana_affixes_text(text: str) -> tuple[str, str, str]:
+    if not text or not _has_kanji(text):
+        return "", text, ""
+    prefix = ""
+    for char in text:
+        if _is_kana(char):
+            prefix += char
+        else:
+            break
+    suffix = ""
+    for char in reversed(text):
+        if _is_kana(char):
+            suffix = char + suffix
+        else:
+            break
+    core = text[len(prefix):len(text) - len(suffix) if suffix else len(text)]
+    return prefix, core, suffix
+
+
+def _expand_kana_affixes(tokens: list[RubyToken], add_romaji: bool) -> list[RubyToken]:
+    expanded: list[RubyToken] = []
+    for token in tokens:
+        if not token.text:
+            continue
+        if not _has_kanji(token.text):
+            expanded.append(token)
+            continue
+        prefix, core, suffix = _split_kana_affixes_text(token.text)
+        if prefix:
+            expanded.append(
+                RubyToken(
+                    text=prefix,
+                    ruby=_kana_to_romaji(prefix) if add_romaji else None,
+                    color=token.color,
+                    token_type=token.token_type,
+                )
+            )
+        if core:
+            expanded.append(
+                RubyToken(
+                    text=core,
+                    ruby=token.ruby,
+                    color=token.color,
+                    token_type=token.token_type,
+                )
+            )
+        if suffix:
+            expanded.append(
+                RubyToken(
+                    text=suffix,
+                    ruby=_kana_to_romaji(suffix) if add_romaji else None,
+                    color=token.color,
+                    token_type=token.token_type,
+                )
+            )
+        if not (prefix or suffix):
+            expanded.append(token)
+    return expanded
+
+
 def _split_word_tokens(text: str) -> list[RubyToken]:
     if not text:
         return []
@@ -847,6 +907,9 @@ def load_segments_from_json(
         if strip_kana and tokens:
             for token in tokens:
                 token.ruby = _strip_kana_affixes(token.text, token.ruby)
+
+        if tokens and (strip_kana or kana_romaji):
+            tokens = _expand_kana_affixes(tokens, kana_romaji)
 
         if kana_romaji and tokens:
             _apply_kana_romaji(tokens)
