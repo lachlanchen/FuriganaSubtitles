@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+
+# Generated outputs / caches
+furigana_cache/
+grammatical_cache/
+furigana_result*/
+video_*/
+*.mp4
+*.MP4
+*.wav
+*.json
