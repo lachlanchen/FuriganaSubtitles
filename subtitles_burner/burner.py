@@ -159,6 +159,79 @@ class RubyRenderer:
         self.main_font = self._load_font(style.main_font_size)
         self.ruby_font = self._load_font(style.ruby_font_size)
 
+    @staticmethod
+    def _measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> tuple[int, int]:
+        if not text:
+            return 0, 0
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    @staticmethod
+    def _split_kana_affixes(text: str) -> tuple[str, str, str]:
+        prefix = ""
+        for char in text:
+            if _is_kana(char):
+                prefix += char
+            else:
+                break
+
+        suffix = ""
+        for char in reversed(text):
+            if _is_kana(char):
+                suffix = char + suffix
+            else:
+                break
+
+        core = text[len(prefix):len(text) - len(suffix) if suffix else len(text)]
+        return prefix, core, suffix
+
+    def _build_layout(self, tokens: list[RubyToken]) -> tuple[list[dict[str, Any]], int, int, int]:
+        temp_img = Image.new("RGB", (1, 1))
+        draw = ImageDraw.Draw(temp_img)
+
+        layout: list[dict[str, Any]] = []
+        total_width = 0
+        max_ruby_h = 0
+        max_main_h = 0
+
+        for token in tokens:
+            main_w, main_h = self._measure_text(draw, token.text, self.main_font)
+            ruby_w, ruby_h = self._measure_text(draw, token.ruby or "", self.ruby_font)
+
+            prefix_w = core_w = suffix_w = 0
+            if token.ruby and token.text and _has_kanji(token.text):
+                prefix, core, suffix = self._split_kana_affixes(token.text)
+                prefix_w, _ = self._measure_text(draw, prefix, self.main_font)
+                core_w, _ = self._measure_text(draw, core, self.main_font)
+                suffix_w, _ = self._measure_text(draw, suffix, self.main_font)
+
+            column_w = main_w
+            if token.ruby:
+                if core_w > 0:
+                    ruby_span = prefix_w + max(ruby_w, core_w) + suffix_w
+                else:
+                    ruby_span = ruby_w
+                column_w = max(main_w, ruby_span)
+
+            total_width += column_w
+            max_ruby_h = max(max_ruby_h, ruby_h)
+            max_main_h = max(max_main_h, main_h)
+
+            layout.append(
+                {
+                    "main_w": main_w,
+                    "main_h": main_h,
+                    "ruby_w": ruby_w,
+                    "ruby_h": ruby_h,
+                    "prefix_w": prefix_w,
+                    "core_w": core_w,
+                    "suffix_w": suffix_w,
+                    "column_w": column_w,
+                }
+            )
+
+        return layout, total_width, max_ruby_h, max_main_h
+
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
         font_paths = [
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -177,37 +250,17 @@ class RubyRenderer:
     def measure_tokens(self, tokens: list[RubyToken]) -> tuple[int, int]:
         if not tokens:
             return 0, 0
-        temp_img = Image.new("RGB", (1, 1))
-        draw = ImageDraw.Draw(temp_img)
-
-        total_width = 0
-        max_height = 0
-        for token in tokens:
-            main_bbox = draw.textbbox((0, 0), token.text, font=self.main_font)
-            main_w = main_bbox[2] - main_bbox[0]
-            main_h = main_bbox[3] - main_bbox[1]
-
-            ruby_w = 0
-            ruby_h = 0
-            if token.ruby:
-                ruby_bbox = draw.textbbox((0, 0), token.ruby, font=self.ruby_font)
-                ruby_w = ruby_bbox[2] - ruby_bbox[0]
-                ruby_h = ruby_bbox[3] - ruby_bbox[1]
-
-            column_w = max(main_w, ruby_w)
-            total_width += column_w
-
-            token_height = main_h
-            if token.ruby:
-                token_height += ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing)
-            max_height = max(max_height, token_height)
-        return total_width, max_height
+        _, total_width, max_ruby_h, max_main_h = self._build_layout(tokens)
+        ruby_row = max_ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing) if max_ruby_h else 0
+        return total_width, max_main_h + ruby_row
 
     def render_tokens(self, tokens: list[RubyToken], padding: int = 16) -> Image.Image:
         if not tokens:
             return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
 
-        text_width, text_height = self.measure_tokens(tokens)
+        layout, text_width, max_ruby_h, max_main_h = self._build_layout(tokens)
+        ruby_row = max_ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing) if max_ruby_h else 0
+        text_height = max_main_h + ruby_row
         width = max(text_width + padding * 2, 1)
         height = max(text_height + padding * 2, 1)
         img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -217,21 +270,17 @@ class RubyRenderer:
         start_y = padding
         current_x = start_x
 
-        for token in tokens:
-            main_bbox = draw.textbbox((0, 0), token.text, font=self.main_font)
-            main_w = main_bbox[2] - main_bbox[0]
-            main_h = main_bbox[3] - main_bbox[1]
+        for token, metrics in zip(tokens, layout):
+            main_w = metrics["main_w"]
+            main_h = metrics["main_h"]
+            ruby_w = metrics["ruby_w"]
+            ruby_h = metrics["ruby_h"]
+            prefix_w = metrics["prefix_w"]
+            core_w = metrics["core_w"]
+            column_w = metrics["column_w"]
 
-            ruby_w = 0
-            ruby_h = 0
-            if token.ruby:
-                ruby_bbox = draw.textbbox((0, 0), token.ruby, font=self.ruby_font)
-                ruby_w = ruby_bbox[2] - ruby_bbox[0]
-                ruby_h = ruby_bbox[3] - ruby_bbox[1]
-
-            column_w = max(main_w, ruby_w)
             main_x = current_x + (column_w - main_w) // 2
-            main_y = start_y + (ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing))
+            main_y = start_y + ruby_row
 
             color = token.color or self.style.text_color
             if self.style.stroke_width > 0:
@@ -247,8 +296,11 @@ class RubyRenderer:
             draw.text((main_x, main_y), token.text, font=self.main_font, fill=color)
 
             if token.ruby:
-                ruby_x = current_x + (column_w - ruby_w) // 2
-                ruby_y = start_y
+                if core_w > 0:
+                    ruby_x = int(main_x + prefix_w + (core_w - ruby_w) / 2)
+                else:
+                    ruby_x = current_x + (column_w - ruby_w) // 2
+                ruby_y = start_y + (max_ruby_h - ruby_h)
                 if self.style.stroke_width > 0:
                     for dx in range(-self.style.stroke_width, self.style.stroke_width + 1):
                         for dy in range(-self.style.stroke_width, self.style.stroke_width + 1):
