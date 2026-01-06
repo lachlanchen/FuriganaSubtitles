@@ -9,7 +9,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import cv2
 import numpy as np
@@ -485,6 +485,7 @@ def burn_subtitles_with_layout(
     layout: BurnLayout,
     assignments: list[SlotAssignment],
     fps_override: Optional[float] = None,
+    progress_callback: Optional[Callable[[int], None]] = None,
 ) -> None:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -520,6 +521,9 @@ def burn_subtitles_with_layout(
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     frame_idx = 0
+    last_reported = -1
+    if progress_callback and total_frames:
+        progress_callback(0)
     try:
         while True:
             ret, frame = cap.read()
@@ -536,9 +540,11 @@ def burn_subtitles_with_layout(
 
             out.write(frame)
             frame_idx += 1
-            if frame_idx % 120 == 0 and total_frames:
-                progress = (frame_idx / total_frames) * 100
-                print(f"Burn progress: {progress:.1f}%")
+            if total_frames:
+                progress = int(min(100, (frame_idx / total_frames) * 100))
+                if progress_callback and progress != last_reported and (progress == 100 or progress % 2 == 0):
+                    progress_callback(progress)
+                    last_reported = progress
     finally:
         cap.release()
         out.release()
