@@ -504,6 +504,153 @@ class RubyRenderer:
         return img
 
 
+RENDER_PADDING = 16
+
+
+def _tokens_fit(tokens: list[RubyToken], slot: Slot, renderer: RubyRenderer) -> bool:
+    if not tokens:
+        return True
+    width, height = renderer.measure_tokens(tokens)
+    return (width + RENDER_PADDING * 2) <= slot.width and (height + RENDER_PADDING * 2) <= slot.height
+
+
+def _token_weight(token: RubyToken) -> float:
+    text = token.text or ""
+    if not text:
+        return 0.0
+    weight = 0.0
+    for char in text:
+        if char.isspace():
+            continue
+        if char.isalnum() or _is_cjk(char) or _is_kana(char) or ("\u0600" <= char <= "\u06FF") or ("\uAC00" <= char <= "\uD7A3"):
+            weight += 1.0
+        else:
+            weight += 0.2
+    return weight
+
+
+def _trim_chunk(chunk: list[RubyToken]) -> list[RubyToken]:
+    start = 0
+    end = len(chunk)
+    while start < end and (chunk[start].text or "").isspace():
+        start += 1
+    while end > start and (chunk[end - 1].text or "").isspace():
+        end -= 1
+    return chunk[start:end]
+
+
+def _split_text_tokens_for_fit(text: str) -> list[RubyToken]:
+    if not text:
+        return []
+    if re.search(r"\s", text):
+        return _split_word_tokens(text)
+    if any(_is_cjk(char) or _is_kana(char) for char in text):
+        return [RubyToken(text=char) for char in text]
+    return [RubyToken(text=text)]
+
+
+def _chunk_tokens_to_fit(tokens: list[RubyToken], slot: Slot, renderer: RubyRenderer) -> list[list[RubyToken]]:
+    chunks: list[list[RubyToken]] = []
+    current: list[RubyToken] = []
+    for token in tokens:
+        candidate = current + [token]
+        if _tokens_fit(candidate, slot, renderer):
+            current = candidate
+            continue
+        if current:
+            cleaned = _trim_chunk(current)
+            if cleaned:
+                chunks.append(cleaned)
+            current = [token]
+            if not _tokens_fit(current, slot, renderer):
+                cleaned = _trim_chunk(current)
+                if cleaned:
+                    chunks.append(cleaned)
+                current = []
+        else:
+            cleaned = _trim_chunk([token])
+            if cleaned:
+                chunks.append(cleaned)
+    if current:
+        cleaned = _trim_chunk(current)
+        if cleaned:
+            chunks.append(cleaned)
+    return chunks if chunks else [tokens]
+
+
+def _segment_text_from_tokens(tokens: list[RubyToken]) -> str:
+    return "".join(token.text or "" for token in tokens)
+
+
+def _split_segment_timing(segment: SubtitleSegment, chunks: list[list[RubyToken]]) -> list[SubtitleSegment]:
+    if len(chunks) <= 1:
+        return [segment]
+    start = segment.start_time
+    end = segment.end_time
+    total_duration = max(0.0, end - start)
+    if total_duration <= 0:
+        return [segment]
+    weights = [sum(_token_weight(token) for token in chunk) for chunk in chunks]
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        weights = [1.0 for _ in chunks]
+        total_weight = float(len(chunks))
+    new_segments: list[SubtitleSegment] = []
+    current_start = start
+    for idx, chunk in enumerate(chunks):
+        if idx == len(chunks) - 1:
+            current_end = end
+        else:
+            portion = weights[idx] / total_weight
+            current_end = current_start + total_duration * portion
+            if current_end < current_start:
+                current_end = current_start
+        new_segments.append(
+            SubtitleSegment(
+                start_time=current_start,
+                end_time=current_end,
+                tokens=chunk,
+                text=_segment_text_from_tokens(chunk),
+            )
+        )
+        current_start = current_end
+    return new_segments
+
+
+def _auto_split_segments_for_slot(
+    segments: list[SubtitleSegment],
+    slot: Slot,
+    style: TextStyle,
+) -> list[SubtitleSegment]:
+    renderer = RubyRenderer(style)
+    split_segments: list[SubtitleSegment] = []
+    for segment in segments:
+        if not segment.tokens:
+            continue
+        tokens = segment.tokens
+        split_tokens = tokens
+        if len(tokens) == 1 and not tokens[0].ruby:
+            text = tokens[0].text or segment.text or ""
+            split_tokens = _split_text_tokens_for_fit(text)
+        if not _tokens_fit(split_tokens, slot, renderer):
+            chunks = _chunk_tokens_to_fit(split_tokens, slot, renderer)
+            if len(chunks) > 1:
+                split_segments.extend(_split_segment_timing(segment, chunks))
+                continue
+        if split_tokens is not tokens:
+            split_segments.append(
+                SubtitleSegment(
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                    tokens=split_tokens,
+                    text=_segment_text_from_tokens(split_tokens),
+                )
+            )
+        else:
+            split_segments.append(segment)
+    return split_segments
+
+
 class SubtitleTrack:
     def __init__(self, segments: list[SubtitleSegment], slot: Slot, style: TextStyle) -> None:
         self.segments = sorted(segments, key=lambda seg: seg.start_time)
@@ -1208,6 +1355,7 @@ def burn_subtitles_with_layout(
         )
         if not segments:
             continue
+        segments = _auto_split_segments_for_slot(segments, slot, style)
         tracks.append(SubtitleTrack(segments=segments, slot=slot, style=style))
 
     ext = os.path.splitext(output_path)[1].lower()
