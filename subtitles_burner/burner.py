@@ -85,6 +85,7 @@ class SlotAssignment:
     palette: Optional[dict[str, Any]] = None
     style: Optional[TextStyle] = None
     auto_ruby: bool = False
+    strip_kana: bool = False
 
 
 class FuriganaGenerator:
@@ -318,6 +319,59 @@ def _parse_timestamp(value: Any) -> Optional[float]:
     return hours * 3600 + minutes * 60 + seconds + millis / 1000.0
 
 
+def _is_kana(char: str) -> bool:
+    return "\u3040" <= char <= "\u30ff" or char == "\u30fc"
+
+
+def _has_kanji(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _to_hiragana(text: str) -> str:
+    result = ""
+    for char in text:
+        if "\u30a1" <= char <= "\u30f6":
+            result += chr(ord(char) - 0x60)
+        else:
+            result += char
+    return result
+
+
+def _strip_kana_affixes(text: str, ruby: Optional[str]) -> Optional[str]:
+    if not ruby:
+        return ruby
+    if not text or not _has_kanji(text):
+        return None
+
+    ruby_h = _to_hiragana(ruby)
+    prefix = ""
+    for char in text:
+        if _is_kana(char):
+            prefix += char
+        else:
+            break
+    suffix = ""
+    for char in reversed(text):
+        if _is_kana(char):
+            suffix = char + suffix
+        else:
+            break
+
+    prefix_h = _to_hiragana(prefix)
+    suffix_h = _to_hiragana(suffix)
+    trimmed = ruby_h
+    if prefix_h and trimmed.startswith(prefix_h):
+        trimmed = trimmed[len(prefix_h):]
+    if suffix_h and trimmed.endswith(suffix_h):
+        trimmed = trimmed[: -len(suffix_h)]
+    trimmed = trimmed.strip()
+    if not trimmed:
+        return None
+    if trimmed == _to_hiragana(text):
+        return None
+    return trimmed
+
+
 def _hex_to_rgb(value: str) -> Optional[tuple[int, int, int]]:
     text = value.strip().lstrip("#")
     if len(text) == 3:
@@ -384,6 +438,7 @@ def load_segments_from_json(
     pairs_key: str = "furigana_pairs",
     palette: Optional[dict[str, Any]] = None,
     auto_ruby: bool = False,
+    strip_kana: bool = False,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -441,6 +496,10 @@ def load_segments_from_json(
             tokens = generator.generate(base_text)
         else:
             tokens = [RubyToken(text=base_text)] if base_text else []
+
+        if strip_kana and tokens:
+            for token in tokens:
+                token.ruby = _strip_kana_affixes(token.text, token.ruby)
 
         segments.append(
             SubtitleSegment(
@@ -515,6 +574,7 @@ def burn_subtitles_with_layout(
             pairs_key=assignment.pairs_key,
             palette=assignment.palette,
             auto_ruby=assignment.auto_ruby,
+            strip_kana=assignment.strip_kana,
         )
         if not segments:
             continue
