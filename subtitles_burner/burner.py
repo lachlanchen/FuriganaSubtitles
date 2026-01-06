@@ -45,6 +45,13 @@ try:
 except Exception:
     PINYIN_AVAILABLE = False
 
+try:
+    from pycantonese import characters_to_jyutping  # type: ignore
+
+    JYUTPING_AVAILABLE = True
+except Exception:
+    JYUTPING_AVAILABLE = False
+
 ROMAJI_CONVERTER = None
 if KAKASI_AVAILABLE:
     try:
@@ -239,6 +246,7 @@ class SlotAssignment:
     kana_romaji: bool = False
     pinyin: bool = False
     ipa_lang: Optional[str] = None
+    jyutping: bool = False
 
 
 class FuriganaGenerator:
@@ -798,6 +806,30 @@ def _apply_pinyin(tokens: list[RubyToken]) -> list[RubyToken]:
     return expanded
 
 
+def _apply_jyutping(text: str) -> list[RubyToken]:
+    if not JYUTPING_AVAILABLE:
+        return [RubyToken(text=text)]
+    try:
+        jyut_list = characters_to_jyutping(text)
+    except Exception:
+        return [RubyToken(text=text)]
+
+    tokens: list[RubyToken] = []
+    for item in jyut_list:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            segment, jyut = item
+            segment_text = str(segment)
+            if not segment_text:
+                continue
+            if jyut:
+                tokens.append(RubyToken(text=segment_text, ruby=str(jyut)))
+            else:
+                tokens.append(RubyToken(text=segment_text))
+        else:
+            tokens.append(RubyToken(text=str(item)))
+    return tokens
+
+
 def _strip_kana_affixes(text: str, ruby: Optional[str]) -> Optional[str]:
     if not ruby:
         return ruby
@@ -903,6 +935,7 @@ def load_segments_from_json(
     kana_romaji: bool = False,
     pinyin: bool = False,
     ipa_lang: Optional[str] = None,
+    jyutping: bool = False,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -973,6 +1006,9 @@ def load_segments_from_json(
 
         if pinyin and tokens:
             tokens = _apply_pinyin(tokens)
+
+        if jyutping:
+            tokens = _apply_jyutping(base_text)
 
         if ipa_lang:
             if len(tokens) == 1 and tokens[0].text and not tokens[0].ruby and " " in tokens[0].text:
@@ -1056,6 +1092,7 @@ def burn_subtitles_with_layout(
             kana_romaji=assignment.kana_romaji,
             pinyin=assignment.pinyin,
             ipa_lang=assignment.ipa_lang,
+            jyutping=assignment.jyutping,
         )
         if not segments:
             continue
