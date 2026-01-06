@@ -462,10 +462,13 @@ def build_bottom_slot_layout(
     height_ratio: float = 0.28,
     margin: int = 24,
     gutter: int = 12,
+    lift_slots: int = 1,
 ) -> BurnLayout:
     bottom_height = int(frame_height * height_ratio)
-    top_y = frame_height - bottom_height
     slot_height = max(1, (bottom_height - gutter * (rows - 1)) // rows)
+    lift_slots = max(0, int(lift_slots))
+    lift_pixels = (slot_height + gutter) * lift_slots
+    top_y = max(0, frame_height - bottom_height - lift_pixels)
     slot_width = max(1, (frame_width - gutter * (cols - 1) - margin * 2) // cols)
 
     slots: list[Slot] = []
@@ -517,7 +520,11 @@ def burn_subtitles_with_layout(
             continue
         tracks.append(SubtitleTrack(segments=segments, slot=slot, style=style))
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext == ".avi":
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+    else:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     frame_idx = 0
