@@ -675,17 +675,18 @@ def _expand_kana_affixes(tokens: list[RubyToken], add_romaji: bool) -> list[Ruby
                         ruby=None,
                         color=token.color,
                         token_type=token.token_type,
-                    )
-                )
-        if core:
-            expanded.append(
-                RubyToken(
-                    text=core,
-                    ruby=token.ruby,
-                    color=token.color,
-                    token_type=token.token_type,
                 )
             )
+        if core:
+            if prefix or suffix:
+                expanded.append(
+                    RubyToken(
+                        text=core,
+                        ruby=token.ruby,
+                        color=token.color,
+                        token_type=token.token_type,
+                    )
+                )
         if suffix:
             if add_romaji:
                 for char in suffix:
@@ -704,8 +705,8 @@ def _expand_kana_affixes(tokens: list[RubyToken], add_romaji: bool) -> list[Ruby
                         ruby=None,
                         color=token.color,
                         token_type=token.token_type,
-                    )
                 )
+            )
         if not (prefix or suffix):
             expanded.append(token)
     return expanded
