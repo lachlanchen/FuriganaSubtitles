@@ -59,6 +59,15 @@ try:
 except Exception:
     JYUTPING_AVAILABLE = False
 
+try:
+    from camel_tools.utils.charmap import CharMapper
+
+    ARABIC_TRANSLIT_AVAILABLE = True
+    ARABIC_CHAR_MAPPER = CharMapper.builtin_mapper("ar2bw")
+except Exception:
+    ARABIC_TRANSLIT_AVAILABLE = False
+    ARABIC_CHAR_MAPPER = None
+
 ROMAJI_CONVERTER = None
 if KAKASI_AVAILABLE:
     try:
@@ -255,6 +264,7 @@ class SlotAssignment:
     ipa_lang: Optional[str] = None
     jyutping: bool = False
     korean_romaja: bool = False
+    arabic_translit: bool = False
 
 
 class FuriganaGenerator:
@@ -875,6 +885,49 @@ def _apply_korean_romaja(tokens: list[RubyToken]) -> list[RubyToken]:
     return updated
 
 
+_ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+
+
+def _arabic_transliterate(text: str) -> Optional[str]:
+    if not ARABIC_TRANSLIT_AVAILABLE or not text:
+        return None
+    if not ARABIC_CHAR_MAPPER:
+        return None
+    try:
+        mapped = ARABIC_CHAR_MAPPER(text)
+    except Exception:
+        return None
+    cleaned = str(mapped).strip()
+    if not cleaned or cleaned == text:
+        return None
+    return cleaned
+
+
+def _split_arabic_tokens(text: str) -> list[RubyToken]:
+    if not text:
+        return []
+    parts = re.findall(r"[\u0600-\u06FF]+|\s+|[^\s\u0600-\u06FF]+", text)
+    return [RubyToken(text=part) for part in parts]
+
+
+def _apply_arabic_translit(tokens: list[RubyToken]) -> list[RubyToken]:
+    if not tokens:
+        return tokens
+    updated: list[RubyToken] = []
+    for token in tokens:
+        if token.ruby or not token.text:
+            updated.append(token)
+            continue
+        if not _ARABIC_RE.search(token.text):
+            updated.append(token)
+            continue
+        translit = _arabic_transliterate(token.text)
+        if translit:
+            token.ruby = translit
+        updated.append(token)
+    return updated
+
+
 def _strip_kana_affixes(text: str, ruby: Optional[str]) -> Optional[str]:
     if not ruby:
         return ruby
@@ -982,6 +1035,7 @@ def load_segments_from_json(
     ipa_lang: Optional[str] = None,
     jyutping: bool = False,
     korean_romaja: bool = False,
+    arabic_translit: bool = False,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -1066,6 +1120,11 @@ def load_segments_from_json(
                 tokens = _split_word_tokens(tokens[0].text)
             tokens = _apply_ipa(tokens, ipa_lang)
 
+        if arabic_translit:
+            if len(tokens) == 1 and tokens[0].text and not tokens[0].ruby:
+                tokens = _split_arabic_tokens(tokens[0].text)
+            tokens = _apply_arabic_translit(tokens)
+
         segments.append(
             SubtitleSegment(
                 start_time=start,
@@ -1145,6 +1204,7 @@ def burn_subtitles_with_layout(
             ipa_lang=assignment.ipa_lang,
             jyutping=assignment.jyutping,
             korean_romaja=assignment.korean_romaja,
+            arabic_translit=assignment.arabic_translit,
         )
         if not segments:
             continue
