@@ -9,6 +9,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 import cv2
@@ -385,7 +386,14 @@ class RubyRenderer:
         return layout, total_width, max_ruby_h, max_main_h
 
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
+        repo_root = Path(__file__).resolve().parents[2]
+        local_fonts = [
+            repo_root / "fonts" / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
+            repo_root / "fonts" / "Noto_Sans" / "static" / "NotoSans-Medium.ttf",
+            repo_root / "fonts" / "arial-unicode-ms.ttf",
+        ]
         font_paths = [
+            *(str(path) for path in local_fonts if path.exists()),
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
             "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
             "/Windows/Fonts/msgothic.ttc",
