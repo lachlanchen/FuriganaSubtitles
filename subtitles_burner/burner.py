@@ -30,6 +30,25 @@ try:
 except Exception:
     KAKASI_AVAILABLE = False
 
+try:
+    from pypinyin import Style, pinyin as pypinyin
+
+    PINYIN_AVAILABLE = True
+except Exception:
+    PINYIN_AVAILABLE = False
+
+ROMAJI_CONVERTER = None
+if KAKASI_AVAILABLE:
+    try:
+        kakasi = pykakasi.kakasi()
+        kakasi.setMode("H", "a")
+        kakasi.setMode("K", "a")
+        kakasi.setMode("J", "a")
+        kakasi.setMode("r", "Hepburn")
+        ROMAJI_CONVERTER = kakasi.getConverter()
+    except Exception:
+        ROMAJI_CONVERTER = None
+
 
 @dataclass
 class RubyToken:
@@ -86,6 +105,8 @@ class SlotAssignment:
     style: Optional[TextStyle] = None
     auto_ruby: bool = False
     strip_kana: bool = False
+    kana_romaji: bool = False
+    pinyin: bool = False
 
 
 class FuriganaGenerator:
@@ -379,6 +400,10 @@ def _has_kanji(text: str) -> bool:
     return any("\u4e00" <= char <= "\u9fff" for char in text)
 
 
+def _is_cjk(char: str) -> bool:
+    return "\u4e00" <= char <= "\u9fff"
+
+
 def _to_hiragana(text: str) -> str:
     result = ""
     for char in text:
@@ -387,6 +412,61 @@ def _to_hiragana(text: str) -> str:
         else:
             result += char
     return result
+
+
+def _is_kana_text(text: str) -> bool:
+    return any(_is_kana(char) for char in text) and not _has_kanji(text)
+
+
+def _kana_to_romaji(text: str) -> Optional[str]:
+    if not ROMAJI_CONVERTER:
+        return None
+    try:
+        return ROMAJI_CONVERTER.do(text)
+    except Exception:
+        return None
+
+
+def _apply_kana_romaji(tokens: list[RubyToken]) -> None:
+    for token in tokens:
+        if token.ruby:
+            continue
+        if not token.text:
+            continue
+        if not _is_kana_text(token.text):
+            continue
+        romaji = _kana_to_romaji(token.text)
+        if romaji and romaji != token.text:
+            token.ruby = romaji
+
+
+def _tokens_with_pinyin(text: str) -> list[RubyToken]:
+    if not PINYIN_AVAILABLE:
+        return [RubyToken(text=text)]
+    items = pypinyin(text, style=Style.TONE, errors=lambda x: [x])
+    tokens: list[RubyToken] = []
+    for char, py in zip(text, items):
+        reading = py[0] if py else ""
+        if _is_cjk(char) and reading and reading != char:
+            tokens.append(RubyToken(text=char, ruby=reading))
+        else:
+            tokens.append(RubyToken(text=char))
+    return tokens
+
+
+def _apply_pinyin(tokens: list[RubyToken]) -> list[RubyToken]:
+    if not PINYIN_AVAILABLE:
+        return tokens
+    expanded: list[RubyToken] = []
+    for token in tokens:
+        if token.ruby or not token.text:
+            expanded.append(token)
+            continue
+        if any(_is_cjk(char) for char in token.text):
+            expanded.extend(_tokens_with_pinyin(token.text))
+        else:
+            expanded.append(token)
+    return expanded
 
 
 def _strip_kana_affixes(text: str, ruby: Optional[str]) -> Optional[str]:
@@ -491,6 +571,8 @@ def load_segments_from_json(
     palette: Optional[dict[str, Any]] = None,
     auto_ruby: bool = False,
     strip_kana: bool = False,
+    kana_romaji: bool = False,
+    pinyin: bool = False,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -552,6 +634,12 @@ def load_segments_from_json(
         if strip_kana and tokens:
             for token in tokens:
                 token.ruby = _strip_kana_affixes(token.text, token.ruby)
+
+        if kana_romaji and tokens:
+            _apply_kana_romaji(tokens)
+
+        if pinyin and tokens:
+            tokens = _apply_pinyin(tokens)
 
         segments.append(
             SubtitleSegment(
@@ -627,6 +715,8 @@ def burn_subtitles_with_layout(
             palette=assignment.palette,
             auto_ruby=assignment.auto_ruby,
             strip_kana=assignment.strip_kana,
+            kana_romaji=assignment.kana_romaji,
+            pinyin=assignment.pinyin,
         )
         if not segments:
             continue
