@@ -558,6 +558,17 @@ def _kana_to_romaji(text: str) -> Optional[str]:
         return _kana_to_romaji_fallback(text)
 
 
+def _kana_char_romaji(char: str) -> Optional[str]:
+    if not char:
+        return None
+    if char == "ー":
+        return None
+    hira = _to_hiragana(char)
+    if hira in KANA_ROMAJI_BASE:
+        return KANA_ROMAJI_BASE[hira]
+    return _kana_to_romaji_fallback(hira)
+
+
 def _kana_to_romaji_fallback(text: str) -> Optional[str]:
     if not text:
         return None
@@ -598,7 +609,10 @@ def _apply_kana_romaji(tokens: list[RubyToken]) -> None:
             continue
         if not _is_kana_text(token.text):
             continue
-        romaji = _kana_to_romaji(token.text)
+        if len(token.text) == 1:
+            romaji = _kana_char_romaji(token.text)
+        else:
+            romaji = _kana_to_romaji(token.text)
         if romaji and romaji != token.text:
             token.ruby = romaji
 
@@ -628,18 +642,41 @@ def _expand_kana_affixes(tokens: list[RubyToken], add_romaji: bool) -> list[Ruby
         if not token.text:
             continue
         if not _has_kanji(token.text):
-            expanded.append(token)
+            if add_romaji and _is_kana_text(token.text):
+                for char in token.text:
+                    romaji = _kana_char_romaji(char) if add_romaji else None
+                    expanded.append(
+                        RubyToken(
+                            text=char,
+                            ruby=romaji,
+                            color=token.color,
+                            token_type=token.token_type,
+                        )
+                    )
+            else:
+                expanded.append(token)
             continue
         prefix, core, suffix = _split_kana_affixes_text(token.text)
         if prefix:
-            expanded.append(
-                RubyToken(
-                    text=prefix,
-                    ruby=_kana_to_romaji(prefix) if add_romaji else None,
-                    color=token.color,
-                    token_type=token.token_type,
+            if add_romaji:
+                for char in prefix:
+                    expanded.append(
+                        RubyToken(
+                            text=char,
+                            ruby=_kana_char_romaji(char),
+                            color=token.color,
+                            token_type=token.token_type,
+                        )
+                    )
+            else:
+                expanded.append(
+                    RubyToken(
+                        text=prefix,
+                        ruby=None,
+                        color=token.color,
+                        token_type=token.token_type,
+                    )
                 )
-            )
         if core:
             expanded.append(
                 RubyToken(
@@ -650,14 +687,25 @@ def _expand_kana_affixes(tokens: list[RubyToken], add_romaji: bool) -> list[Ruby
                 )
             )
         if suffix:
-            expanded.append(
-                RubyToken(
-                    text=suffix,
-                    ruby=_kana_to_romaji(suffix) if add_romaji else None,
-                    color=token.color,
-                    token_type=token.token_type,
+            if add_romaji:
+                for char in suffix:
+                    expanded.append(
+                        RubyToken(
+                            text=char,
+                            ruby=_kana_char_romaji(char),
+                            color=token.color,
+                            token_type=token.token_type,
+                        )
+                    )
+            else:
+                expanded.append(
+                    RubyToken(
+                        text=suffix,
+                        ruby=None,
+                        color=token.color,
+                        token_type=token.token_type,
+                    )
                 )
-            )
         if not (prefix or suffix):
             expanded.append(token)
     return expanded
