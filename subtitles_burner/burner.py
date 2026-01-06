@@ -39,6 +39,13 @@ except Exception:
     PHONEMIZER_AVAILABLE = False
 
 try:
+    from koroman import romanize as koroman_romanize
+
+    KOROMAN_AVAILABLE = True
+except Exception:
+    KOROMAN_AVAILABLE = False
+
+try:
     from pypinyin import Style, pinyin as pypinyin
 
     PINYIN_AVAILABLE = True
@@ -247,6 +254,7 @@ class SlotAssignment:
     pinyin: bool = False
     ipa_lang: Optional[str] = None
     jyutping: bool = False
+    korean_romaja: bool = False
 
 
 class FuriganaGenerator:
@@ -830,6 +838,43 @@ def _apply_jyutping(text: str) -> list[RubyToken]:
     return tokens
 
 
+def _romanize_korean(text: str) -> Optional[str]:
+    if not KOROMAN_AVAILABLE:
+        return None
+    try:
+        return koroman_romanize(text, use_pronunciation_rules=True)
+    except Exception:
+        return None
+
+
+def _split_korean_tokens(text: str) -> list[RubyToken]:
+    if not text:
+        return []
+    parts = re.findall(r"[가-힣]+|[A-Za-zÀ-ÖØ-öø-ÿ']+|\\d+|\\s+|[^\\w\\s]", text)
+    tokens: list[RubyToken] = []
+    for part in parts:
+        tokens.append(RubyToken(text=part))
+    return tokens
+
+
+def _apply_korean_romaja(tokens: list[RubyToken]) -> list[RubyToken]:
+    if not tokens:
+        return tokens
+    updated: list[RubyToken] = []
+    for token in tokens:
+        if token.ruby or not token.text:
+            updated.append(token)
+            continue
+        if not re.search(r"[가-힣]", token.text):
+            updated.append(token)
+            continue
+        romaja = _romanize_korean(token.text)
+        if romaja:
+            token.ruby = romaja
+        updated.append(token)
+    return updated
+
+
 def _strip_kana_affixes(text: str, ruby: Optional[str]) -> Optional[str]:
     if not ruby:
         return ruby
@@ -936,6 +981,7 @@ def load_segments_from_json(
     pinyin: bool = False,
     ipa_lang: Optional[str] = None,
     jyutping: bool = False,
+    korean_romaja: bool = False,
 ) -> list[SubtitleSegment]:
     with open(json_path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -1009,6 +1055,11 @@ def load_segments_from_json(
 
         if jyutping:
             tokens = _apply_jyutping(base_text)
+
+        if korean_romaja:
+            if len(tokens) == 1 and tokens[0].text and not tokens[0].ruby and " " in tokens[0].text:
+                tokens = _split_korean_tokens(tokens[0].text)
+            tokens = _apply_korean_romaja(tokens)
 
         if ipa_lang:
             if len(tokens) == 1 and tokens[0].text and not tokens[0].ruby and " " in tokens[0].text:
@@ -1093,6 +1144,7 @@ def burn_subtitles_with_layout(
             pinyin=assignment.pinyin,
             ipa_lang=assignment.ipa_lang,
             jyutping=assignment.jyutping,
+            korean_romaja=assignment.korean_romaja,
         )
         if not segments:
             continue
