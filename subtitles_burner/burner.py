@@ -388,9 +388,9 @@ class RubyRenderer:
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
         repo_root = Path(__file__).resolve().parents[2]
         local_fonts = [
+            repo_root / "fonts" / "arial-unicode-ms.ttf",
             repo_root / "fonts" / "Noto_Sans" / "static" / "NotoSans-Regular.ttf",
             repo_root / "fonts" / "Noto_Sans" / "static" / "NotoSans-Medium.ttf",
-            repo_root / "fonts" / "arial-unicode-ms.ttf",
         ]
         font_paths = [
             *(str(path) for path in local_fonts if path.exists()),
