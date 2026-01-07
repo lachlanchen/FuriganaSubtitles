@@ -1325,9 +1325,12 @@ def load_segments_from_json(
             for token in tokens_payload:
                 if not isinstance(token, dict):
                     continue
+                token_type = token.get("type") or token.get("pos") or token.get("tag")
                 token_text = token.get("text") or token.get("word") or token.get("token")
-                if not token_text:
-                    continue
+                if token_text is None or token_text == "":
+                    if token_type != "speaker":
+                        continue
+                    token_text = ""
                 token_ruby = token.get("ruby") or token.get("reading") or token.get("furigana")
                 token_color = _resolve_token_color(token, palette)
                 tokens.append(
@@ -1335,7 +1338,7 @@ def load_segments_from_json(
                         text=str(token_text),
                         ruby=str(token_ruby) if token_ruby is not None else None,
                         color=token_color,
-                        token_type=str(token.get("type")) if token.get("type") else None,
+                        token_type=str(token_type) if token_type else None,
                     )
                 )
         elif pairs_key and item.get(pairs_key):
