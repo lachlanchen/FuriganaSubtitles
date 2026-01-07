@@ -994,6 +994,21 @@ def _split_word_tokens(text: str) -> list[RubyToken]:
     return tokens
 
 
+def _normalize_speaker_tokens(tokens: list[RubyToken]) -> list[RubyToken]:
+    if not tokens or tokens[0].token_type != "speaker":
+        return tokens
+    rest = tokens[1:]
+    if len(rest) != 1:
+        return tokens
+    candidate = rest[0]
+    if candidate.ruby or not candidate.text:
+        return tokens
+    if re.search(r"\s", candidate.text):
+        split_tokens = _split_word_tokens(candidate.text)
+        return [tokens[0]] + split_tokens
+    return tokens
+
+
 def _phonemize_word(word: str, lang: str) -> Optional[str]:
     if not PHONEMIZER_AVAILABLE:
         return None
@@ -1331,6 +1346,9 @@ def load_segments_from_json(
             tokens = generator.generate(base_text)
         else:
             tokens = [RubyToken(text=base_text)] if base_text else []
+
+        if tokens and tokens[0].token_type == "speaker":
+            tokens = _normalize_speaker_tokens(tokens)
 
         if strip_kana and tokens:
             for token in tokens:
