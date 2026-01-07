@@ -9,6 +9,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
@@ -203,6 +204,8 @@ KANA_ROMAJI_DIGRAPHS = {
     "ゔゅ": "vyu",
 }
 
+SPEAKER_ICON_PATH = Path(__file__).resolve().parent / "assets" / "speaker.png"
+
 
 @dataclass
 class RubyToken:
@@ -374,6 +377,27 @@ class RubyRenderer:
         max_main_h = 0
 
         for token in tokens:
+            if token.token_type == "speaker":
+                icon_size = max(1, int(self.style.main_font_size * 0.9))
+                main_w = main_h = icon_size
+                ruby_w = ruby_h = 0
+                prefix_w = core_w = suffix_w = 0
+                column_w = main_w
+                total_width += column_w
+                max_main_h = max(max_main_h, main_h)
+                layout.append(
+                    {
+                        "main_w": main_w,
+                        "main_h": main_h,
+                        "ruby_w": ruby_w,
+                        "ruby_h": ruby_h,
+                        "prefix_w": prefix_w,
+                        "core_w": core_w,
+                        "suffix_w": suffix_w,
+                        "column_w": column_w,
+                    }
+                )
+                continue
             main_w, main_h = self._measure_text(draw, token.text, self.main_font)
             ruby_w, ruby_h = self._measure_text(draw, token.ruby or "", self.ruby_font)
 
@@ -411,6 +435,18 @@ class RubyRenderer:
 
         return layout, total_width, max_ruby_h, max_main_h
 
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _load_speaker_icon(size: int) -> Optional[Image.Image]:
+        if size <= 0 or not SPEAKER_ICON_PATH.exists():
+            return None
+        try:
+            img = Image.open(SPEAKER_ICON_PATH).convert("RGBA")
+        except Exception:
+            return None
+        resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+        return img.resize((size, size), resample)
+
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
         repo_root = Path(__file__).resolve().parents[2]
         local_fonts = [
@@ -438,12 +474,14 @@ class RubyRenderer:
             return 0, 0
         _, total_width, max_ruby_h, max_main_h = self._build_layout(tokens)
         ruby_row = max_ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing) if max_ruby_h else 0
-        return total_width, max_main_h + ruby_row
+        stroke_pad = max(0, int(self.style.stroke_width))
+        return total_width + stroke_pad * 2, max_main_h + ruby_row + stroke_pad * 2
 
     def render_tokens(self, tokens: list[RubyToken], padding: int = 16) -> Image.Image:
         if not tokens:
             return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
 
+        padding = max(padding, int(self.style.stroke_width * 2))
         layout, text_width, max_ruby_h, max_main_h = self._build_layout(tokens)
         ruby_row = max_ruby_h + int(self.style.ruby_font_size * self.style.ruby_spacing) if max_ruby_h else 0
         text_height = max_main_h + ruby_row
@@ -467,6 +505,16 @@ class RubyRenderer:
 
             main_x = current_x + (column_w - main_w) // 2
             main_y = start_y + ruby_row
+
+            if token.token_type == "speaker":
+                icon = self._load_speaker_icon(main_w)
+                icon_y = main_y + max(0, (max_main_h - main_h) // 2)
+                if icon:
+                    img.alpha_composite(icon, (int(main_x), int(icon_y)))
+                else:
+                    draw.text((main_x, icon_y), token.text or "🔊", font=self.main_font, fill=self.style.text_color)
+                current_x += column_w
+                continue
 
             color = token.color or self.style.text_color
             if self.style.stroke_width > 0:
@@ -512,6 +560,13 @@ def _tokens_fit(tokens: list[RubyToken], slot: Slot, renderer: RubyRenderer) -> 
         return True
     width, height = renderer.measure_tokens(tokens)
     return (width + RENDER_PADDING * 2) <= slot.width and (height + RENDER_PADDING * 2) <= slot.height
+
+
+def _tokens_fit_width(tokens: list[RubyToken], slot: Slot, renderer: RubyRenderer) -> bool:
+    if not tokens:
+        return True
+    width, _ = renderer.measure_tokens(tokens)
+    return (width + RENDER_PADDING * 2) <= slot.width
 
 
 def _token_weight(token: RubyToken) -> float:
@@ -578,6 +633,35 @@ def _chunk_tokens_to_fit(tokens: list[RubyToken], slot: Slot, renderer: RubyRend
     return chunks if chunks else [tokens]
 
 
+def _chunk_tokens_to_fit_width(tokens: list[RubyToken], slot: Slot, renderer: RubyRenderer) -> list[list[RubyToken]]:
+    chunks: list[list[RubyToken]] = []
+    current: list[RubyToken] = []
+    for token in tokens:
+        candidate = current + [token]
+        if _tokens_fit_width(candidate, slot, renderer):
+            current = candidate
+            continue
+        if current:
+            cleaned = _trim_chunk(current)
+            if cleaned:
+                chunks.append(cleaned)
+            current = [token]
+            if not _tokens_fit_width(current, slot, renderer):
+                cleaned = _trim_chunk(current)
+                if cleaned:
+                    chunks.append(cleaned)
+                current = []
+        else:
+            cleaned = _trim_chunk([token])
+            if cleaned:
+                chunks.append(cleaned)
+    if current:
+        cleaned = _trim_chunk(current)
+        if cleaned:
+            chunks.append(cleaned)
+    return chunks if chunks else [tokens]
+
+
 def _segment_text_from_tokens(tokens: list[RubyToken]) -> str:
     return "".join(token.text or "" for token in tokens)
 
@@ -628,15 +712,22 @@ def _auto_split_segments_for_slot(
         if not segment.tokens:
             continue
         tokens = segment.tokens
+        width, height = renderer.measure_tokens(tokens)
+        if height > slot.height or width <= slot.width * 1.05:
+            split_segments.append(segment)
+            continue
+
         split_tokens = tokens
         if len(tokens) == 1 and not tokens[0].ruby:
             text = tokens[0].text or segment.text or ""
             split_tokens = _split_text_tokens_for_fit(text)
-        if not _tokens_fit(split_tokens, slot, renderer):
-            chunks = _chunk_tokens_to_fit(split_tokens, slot, renderer)
+
+        if not _tokens_fit_width(split_tokens, slot, renderer):
+            chunks = _chunk_tokens_to_fit_width(split_tokens, slot, renderer)
             if len(chunks) > 1:
                 split_segments.extend(_split_segment_timing(segment, chunks))
                 continue
+
         if split_tokens is not tokens:
             split_segments.append(
                 SubtitleSegment(
