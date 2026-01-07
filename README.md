@@ -2,6 +2,10 @@
   <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="LazyingArt banner" />
 </p>
 
+<p align="center">
+  <img src="figures/demo.png" alt="Furigana subtitle demo" width="720" />
+</p>
+
 <p>
   <b>Languages:</b>
   <a href="README.md">English</a>
