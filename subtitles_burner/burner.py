@@ -444,8 +444,22 @@ class RubyRenderer:
             img = Image.open(SPEAKER_ICON_PATH).convert("RGBA")
         except Exception:
             return None
+        alpha = img.split()[-1]
+        bbox = alpha.getbbox()
+        if bbox:
+            img = img.crop(bbox)
         resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
-        return img.resize((size, size), resample)
+        w, h = img.size
+        if w <= 0 or h <= 0:
+            return None
+        scale = min(size / w, size / h)
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        img = img.resize((new_w, new_h), resample)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        offset = ((size - new_w) // 2, (size - new_h) // 2)
+        canvas.alpha_composite(img, offset)
+        return canvas
 
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
         repo_root = Path(__file__).resolve().parents[2]
@@ -492,6 +506,8 @@ class RubyRenderer:
 
         start_x = padding
         start_y = padding
+        ascent, descent = self.main_font.getmetrics()
+        main_row_center = start_y + ruby_row + (ascent + descent) / 2
         current_x = start_x
 
         for token, metrics in zip(tokens, layout):
@@ -508,9 +524,9 @@ class RubyRenderer:
 
             if token.token_type == "speaker":
                 icon = self._load_speaker_icon(main_w)
-                icon_y = main_y + max(0, (max_main_h - main_h) // 2)
+                icon_y = main_row_center - main_h / 2
                 if icon:
-                    img.alpha_composite(icon, (int(main_x), int(icon_y)))
+                    img.alpha_composite(icon, (int(main_x), int(round(icon_y))))
                 else:
                     draw.text((main_x, icon_y), token.text or "🔊", font=self.main_font, fill=self.style.text_color)
                 current_x += column_w
