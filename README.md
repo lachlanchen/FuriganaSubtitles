@@ -21,16 +21,19 @@
 
 # Furigana Subtitle Burner
 
-A Python application that burns Japanese subtitles with furigana (pronunciation guides) directly onto video files without using ffmpeg.
+A Python subtitle burner that renders Japanese furigana and other ruby annotations (pinyin, romaji, IPA, etc.) directly onto video frames with OpenCV. It is optimized for furigana workflows while remaining flexible for multilingual ruby-style subtitles.
+
+Built for <a href="https://studio.lazying.art" target="_blank" rel="noreferrer">LazyEdit Studio</a> · <a href="https://github.com/lachlanchen/LazyEdit" target="_blank" rel="noreferrer">GitHub</a>
 
 ## Features
 
 - 🎌 **Automatic Furigana Generation**: Uses MeCab (fugashi) or pykakasi to generate furigana for kanji characters
-- 🎨 **Custom Text Rendering**: Renders beautiful furigana above kanji with proper spacing and alignment
+- 🌐 **Ruby Annotation Support**: Render pronunciation guides for kanji, kana, and other scripts (pinyin, romaji, IPA)
+- 🎨 **Custom Text Rendering**: Renders beautiful ruby text with proper spacing, alignment, and stroke
 - 📺 **Direct Video Processing**: Burns subtitles directly onto video frames using OpenCV
-- 🔤 **Smart Font Handling**: Automatically finds and uses Japanese fonts on your system
+- 🔤 **Smart Font Handling**: Automatically finds and uses fonts for CJK and Latin scripts
 - ⚡ **Batch Processing**: Process multiple videos at once
-- 🎯 **Precise Positioning**: Configurable subtitle position and margins
+- 🎯 **Precise Positioning**: Configurable subtitle position, margins, and layout behavior
 
 ## Installation
 
