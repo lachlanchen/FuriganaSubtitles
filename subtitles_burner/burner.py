@@ -1554,11 +1554,7 @@ def _overlay_image(frame: np.ndarray, img: Image.Image, slot: Slot) -> np.ndarra
         x = slot.x + max(slot.width - w, 0)
     else:
         x = slot.x + max((slot.width - w) // 2, 0)
-    if h > slot.height:
-        gap = min(slot.height // 10, 8)
-        y = slot.y + (slot.height - h) - gap
-    else:
-        y = slot.y + max((slot.height - h) // 2, 0)
+    y = slot.y + (slot.height - h) // 2
 
     x = max(0, min(x, frame.shape[1] - w))
     y = max(0, min(y, frame.shape[0] - h))
