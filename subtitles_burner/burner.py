@@ -783,8 +783,8 @@ class SubtitleTrack:
             return cached
 
         img = self.renderer.render_tokens(seg.tokens)
-        if img.width > self.slot.width or img.height > self.slot.height:
-            scale = min(self.slot.width / img.width, self.slot.height / img.height)
+        if img.width > self.slot.width:
+            scale = min(1.0, self.slot.width / img.width)
             if scale > 0:
                 new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
                 resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
@@ -1527,8 +1527,7 @@ def _overlay_image(frame: np.ndarray, img: Image.Image, slot: Slot) -> np.ndarra
     overlay_img = img
     h, w = overlay_img.size[1], overlay_img.size[0]
     max_w = max(1, slot.width - 16)
-    max_h = max(1, slot.height - 8)
-    scale = min(1.0, max_w / w if w else 1.0, max_h / h if h else 1.0)
+    scale = min(1.0, max_w / w if w else 1.0)
     if scale < 1.0:
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
