@@ -1524,8 +1524,17 @@ def burn_subtitles_with_layout(
 
 
 def _overlay_image(frame: np.ndarray, img: Image.Image, slot: Slot) -> np.ndarray:
-    overlay = cv2.cvtColor(np.array(img), cv2.COLOR_RGBA2BGRA)
-    h, w = overlay.shape[:2]
+    overlay_img = img
+    h, w = overlay_img.size[1], overlay_img.size[0]
+    max_w = max(1, slot.width - 16)
+    max_h = max(1, slot.height - 8)
+    scale = min(1.0, max_w / w if w else 1.0, max_h / h if h else 1.0)
+    if scale < 1.0:
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        overlay_img = overlay_img.resize((new_w, new_h), Image.LANCZOS)
+        h, w = new_h, new_w
+    overlay = cv2.cvtColor(np.array(overlay_img), cv2.COLOR_RGBA2BGRA)
 
     if slot.align == "left":
         x = slot.x
