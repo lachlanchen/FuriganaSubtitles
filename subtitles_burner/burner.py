@@ -370,6 +370,8 @@ class RubyRenderer:
     def _build_layout(self, tokens: list[RubyToken]) -> tuple[list[dict[str, Any]], int, int, int]:
         temp_img = Image.new("RGB", (1, 1))
         draw = ImageDraw.Draw(temp_img)
+        main_ascent, main_descent = self.main_font.getmetrics()
+        ruby_ascent, ruby_descent = self.ruby_font.getmetrics()
 
         layout: list[dict[str, Any]] = []
         total_width = 0
@@ -400,6 +402,8 @@ class RubyRenderer:
                 continue
             main_w, main_h = self._measure_text(draw, token.text, self.main_font)
             ruby_w, ruby_h = self._measure_text(draw, token.ruby or "", self.ruby_font)
+            main_h = max(main_h, main_ascent + main_descent)
+            ruby_h = max(ruby_h, ruby_ascent + ruby_descent)
 
             prefix_w = core_w = suffix_w = 0
             if token.ruby and token.text and _has_kanji(token.text):
