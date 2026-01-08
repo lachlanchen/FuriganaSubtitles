@@ -789,8 +789,21 @@ class SubtitleTrack:
                 new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
                 resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
                 img = img.resize(new_size, resample)
+        img = _append_padding(img, self.slot.height, self.slot.height)
         self._render_cache[key] = img
         return img
+
+
+def _append_padding(img: Image.Image, padding_top: int, padding_bottom: int) -> Image.Image:
+    pad_top = max(0, padding_top)
+    pad_bottom = max(0, padding_bottom)
+    if pad_top == 0 and pad_bottom == 0:
+        return img
+    width = img.width
+    height = img.height + pad_top + pad_bottom
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.paste(img, (0, pad_top))
+    return canvas
 
 
 def _parse_timestamp(value: Any) -> Optional[float]:
