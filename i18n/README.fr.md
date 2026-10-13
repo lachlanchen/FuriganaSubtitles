@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="Bannière LazyingArt" />
+  <a href="https://lazying.art"><img src="https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png" alt="Bannière LazyingArt" /></a>
 </p>
 
 # Furigana Subtitle Burner
