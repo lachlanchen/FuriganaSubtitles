@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <a href="https://lazying.art"><img src="https://github.com/lachlanchen/LazyingArtWebsite/raw/main/media/brand/lazyingart-intro.gif" alt="LazyingArt banner — apps and four buddies" /></a>
+  <a href="https://lazying.art"><img src="https://lazying.art/media/brand/lazyingart-intro.gif" alt="LazyingArt banner — apps and four buddies" /></a>
 </p>
 
 # Furigana 字幕烧录器
